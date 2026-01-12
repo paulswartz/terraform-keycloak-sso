@@ -89,4 +89,80 @@ run "unit_test" {
     condition     = aws_db_instance.keycloak-database-engine.identifier == "keycloak-test"
     error_message = "DB identifier did not match expected 'keycloak-test'"
   }
+
+  assert {
+    condition     = aws_db_instance.keycloak-database-engine.backup_retention_period == 0
+    error_message = "Backup retention period should be 0 when is_temporary is true"
+  }
+
+  assert {
+    condition     = aws_secretsmanager_secret.keycloak-admin-password.recovery_window_in_days == 0
+    error_message = "Admin password recovery window should be 0 when is_temporary is true"
+  }
+
+  assert {
+    condition     = aws_secretsmanager_secret.keycloak-database-password.recovery_window_in_days == 0
+    error_message = "Database password recovery window should be 0 when is_temporary is true"
+  }
+}
+
+run "non_temporary_resources" {
+  command = plan
+
+  variables {
+    is_temporary            = false
+    backup_retention_period = 7
+    log_driver              = "splunk"
+  }
+
+  assert {
+    condition     = aws_secretsmanager_secret.keycloak-admin-password.recovery_window_in_days == 30
+    error_message = "Admin password recovery window should be 30 days for non-temporary resources"
+  }
+
+  assert {
+    condition     = aws_secretsmanager_secret.keycloak-database-password.recovery_window_in_days == 30
+    error_message = "Database password recovery window should be 30 days for non-temporary resources"
+  }
+
+  assert {
+    condition     = aws_db_instance.keycloak-database-engine.backup_retention_period == 7
+    error_message = "Backup retention period should match variable when is_temporary is false"
+  }
+
+  assert {
+    condition     = aws_secretsmanager_secret.keycloak-splunk-token[0].recovery_window_in_days == 30
+    error_message = "Splunk token recovery window should be 30 days for non-temporary resources"
+  }
+}
+
+run "jms_queues" {
+  command = plan
+
+  variables {
+    aws_jms_queues = "queue_one,queue_two"
+  }
+
+  assert {
+    condition     = strcontains(aws_ecs_task_definition.keycloak-ecs-taskdef.container_definitions, "-DawsJmsQueues=queue_one,queue_two")
+    error_message = "Task definition did not contain expected JMS queues configuration"
+  }
+}
+
+run "admin_cidrs_configuration" {
+  command = plan
+
+  variables {
+    admin_cidrs = ["10.0.0.1/32"]
+  }
+
+  assert {
+    condition     = length(aws_lb_listener_rule.forward_admin_from_cidrs) == 1
+    error_message = "Expected 1 admin forwarding rule when admin_cidrs is set"
+  }
+
+  assert {
+    condition     = length(aws_lb_listener_rule.redirect_admin_from_other_cidrs) == 1
+    error_message = "Expected 1 admin redirect rule when admin_cidrs is set"
+  }
 }
